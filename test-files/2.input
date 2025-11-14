@@ -1,0 +1,47 @@
+struct complex_struct {
+    double real;
+    double imag;
+};
+
+union data_union {
+    int int_val;
+    float float_val;
+    char string_val[32];
+};
+
+enum color { RED, GREEN, BLUE };
+
+static int global_counter = 0;
+
+void process_data(int *array, int size) {
+    int sum = 0;
+    for (int i = 0; i < size; ++i) {
+        sum += array[i];
+    }
+
+    switch (sum) {
+        case 0:
+            printf("Sum is zero\n");
+            break;
+        case 1:
+            printf("Sum is one\n");
+            break;
+        default:
+            printf("Sum is %d\n", sum);
+    }
+
+    global_counter++;
+}
+
+int* create_array(int size) {
+    int *arr = (int*)malloc(size * sizeof(int));
+    if (arr == ((void*)0)) {
+        return ((void*)0);
+    }
+
+    for (int i = 0; i < size; i++) {
+        arr[i] = i * i;
+    }
+
+    return arr;
+}
