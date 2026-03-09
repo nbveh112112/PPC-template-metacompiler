@@ -1,10 +1,16 @@
 mod tokenizer;
+mod cstandard;
+mod template_solver;
+
+mod template_extractor;
+mod utils;
+mod name_generator;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::fs;
 use tokenizer::{tokenize, Token, TokenInfo};
-
+use crate::template_extractor::extract_templates;
 
 /// Metacompiler for C language that processes .i files
 #[derive(Parser)]
@@ -63,10 +69,10 @@ fn process_content(content: &str, debug: bool) -> std::result::Result<String, an
     if debug {
         print_tokens(&tokens);
     }
-
-    // For now, just reconstruct the original content from tokens
-    // This will be replaced with actual transformation logic
-    Ok(reconstruct_from_tokens(&tokens))
+    
+    let (extracted_tokens, templates) = extract_templates(tokens);
+    
+    Ok(reconstruct_from_tokens(&solved_tokens))
 }
 
 /// Reconstructs source code from tokens (for testing)

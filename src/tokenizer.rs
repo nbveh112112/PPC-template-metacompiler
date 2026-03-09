@@ -1,5 +1,6 @@
 use std::str::Chars;
 use thiserror::Error;
+use crate::cstandard::CharCStandard;
 
 #[derive(Error, Debug, Clone, PartialEq)]
 #[allow(dead_code)]
@@ -14,7 +15,7 @@ pub enum TokenizerError {
     InvalidCharacter { character: char, line: usize, column: usize, position: usize },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Token {
     // Identifiers and literals
     Identifier(String),
@@ -27,8 +28,7 @@ pub enum Token {
     Auto, Break, Case, Char, Const, Continue, Default, Do, Double, Else, Enum, Extern,
     Float, For, Goto, If, Inline, Int, Long, Register, Restrict, Return, Short, Signed,
     Sizeof, Static, Struct, Switch, Typedef, Union, Unsigned, Void, Volatile, While,
-    Alignas, Alignof, Atomic, Bool, Complex, Generic, Imaginary, Noreturn, StaticAssert,
-    ThreadLocal, Template,
+    Template,
 
     // Operators
     Plus,          // +
@@ -99,10 +99,13 @@ pub enum Token {
 
     // End of file
     Eof,
+    
+    Placeholder(String)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[allow(dead_code)]
+
 pub struct TokenInfo {
     pub token: Token,
     pub line: usize,
@@ -159,6 +162,12 @@ impl<'a> Tokenizer<'a> {
             let start_line = self.line;
             let start_col = self.column;
 
+            if let Some(c) = self.current {
+                if !c.is_c_standard() && !c.is_whitespace() {
+                    return Err(TokenizerError::InvalidCharacter {character: c, line: self.line, column: self.column, position: self.column});
+                }
+            }
+
             let token = if let Some(c) = self.current {
                 match c {
                     // Whitespace
@@ -181,11 +190,6 @@ impl<'a> Tokenizer<'a> {
                         }
                     }
 
-                    // Preprocessor directives
-                    '#' => {
-                        return Err(TokenizerError::InvalidCharacter {character: '#', line: self.line, column: self.column, position: self.column});
-                    }
-
                     // String literals
                     '"' => self.read_string_literal()?,
 
@@ -193,7 +197,7 @@ impl<'a> Tokenizer<'a> {
                     '\'' => self.read_char_literal()?,
 
                     // Identifiers and keywords
-                    c if c.is_alphabetic() || c == '_' => self.read_identifier(),
+                    c if c.is_identifier_nondigit() => self.read_identifier(),
 
                     // Numbers
                     c if c.is_ascii_digit() => self.read_number(),
@@ -240,7 +244,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn read_identifier(&mut self) -> Token {
-        let ident = self.read_while(|c| c.is_alphanumeric() || c == '_');
+        let ident = self.read_while(|c| c.is_identifier() || c == '_');
 
         // Check for keywords
         match ident.as_str() {
@@ -278,16 +282,6 @@ impl<'a> Tokenizer<'a> {
             "void" => Token::Void,
             "volatile" => Token::Volatile,
             "while" => Token::While,
-            // "_Alignas" => Token::Alignas,
-            // "_Alignof" => Token::Alignof,
-            // "_Atomic" => Token::Atomic,
-            // "_Bool" => Token::Bool,
-            // "_Complex" => Token::Complex,
-            // "_Generic" => Token::Generic,
-            // "_Imaginary" => Token::Imaginary,
-            // "_Noreturn" => Token::Noreturn,
-            // "_Static_assert" => Token::StaticAssert,
-            // "_Thread_local" => Token::ThreadLocal,
             "template" => Token::Template,
             _ => Token::Identifier(ident),
         }

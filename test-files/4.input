@@ -1,0 +1,11 @@
+template {T}
+T summ(T a, T b);
+
+int main() {
+    summ{int}(1, 2);
+}
+
+template {T}
+T summ(T a, T b) {
+    return a + b;
+}

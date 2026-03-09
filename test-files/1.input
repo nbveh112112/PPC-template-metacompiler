@@ -1,4 +1,4 @@
-typedef long int __off_t;
+typedef long __off_t;
 typedef struct _IO_FILE FILE;
 
 extern FILE *stdin;
@@ -11,14 +11,8 @@ int main() {
     char *message = "Hello, World!";
 
     if (x > 0) {
-        printf("Positive: %d\n", x@);
+        printf("Positive: %d\n", x);
     } else {
         printf("Non-positive: %d\n", x);
     }
-
-    for (int i = 0; i < 5; i++) {
-        printf("Loop iteration: %d\n", i);
-    }
-
-    return 0;
 }

@@ -3,12 +3,6 @@ struct complex_struct {
     double imag;
 };
 
-union data_union {
-    int int_val;
-    float float_val;
-    char string_val[32];
-};
-
 enum color { RED, GREEN, BLUE };
 
 static int global_counter = 0;
