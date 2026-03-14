@@ -41,6 +41,7 @@ pub(crate) fn skip_paren_seq(tokens: &[TokenInfo], mut i: usize, token_type : To
                 return i + 1;
             }
         }
+        i += 1;
     }
     i
 }

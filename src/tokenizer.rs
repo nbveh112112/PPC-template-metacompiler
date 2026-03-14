@@ -99,11 +99,11 @@ pub enum Token {
 
     // End of file
     Eof,
-    
+
     Placeholder(String)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 
 pub struct TokenInfo {
@@ -111,6 +111,20 @@ pub struct TokenInfo {
     pub line: usize,
     pub column: usize,
     pub position: usize,
+}
+//inplement partialeq, eq, hash for tokeninfo, comparing only the token field
+impl PartialEq for TokenInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.token == other.token
+    }
+}
+
+impl Eq for TokenInfo {}
+
+impl std::hash::Hash for TokenInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.token.hash(state);
+    }
 }
 
 #[allow(dead_code)]
@@ -179,6 +193,7 @@ impl<'a> Tokenizer<'a> {
                     // Comments
                     '/' => {
                         if let Some('/') = self.peek() {
+                            self.advance(); // consume first '/'
                             self.advance(); // consume second '/'
                             let comment = self.read_while(|ch| ch != '\n');
                             Token::Comment(format!("//{}", comment))

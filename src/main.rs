@@ -5,12 +5,13 @@ mod template_solver;
 mod template_extractor;
 mod utils;
 mod name_generator;
+mod code_generator;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::fs;
 use tokenizer::{tokenize, Token, TokenInfo};
-use crate::template_extractor::extract_templates;
+
 
 /// Metacompiler for C language that processes .i files
 #[derive(Parser)]
@@ -69,39 +70,20 @@ fn process_content(content: &str, debug: bool) -> std::result::Result<String, an
     if debug {
         print_tokens(&tokens);
     }
-    
-    let (extracted_tokens, templates) = extract_templates(tokens);
-    
-    Ok(reconstruct_from_tokens(&solved_tokens))
-}
 
-/// Reconstructs source code from tokens (for testing)
-fn reconstruct_from_tokens(tokens: &[TokenInfo]) -> String {
-    let mut result = String::new();
+    let (extracted_tokens, templates, struct_templates) = template_extractor::extract_templates(tokens)?;
 
-    for token_info in tokens {
-        match &token_info.token {
-            Token::Whitespace(ws) => result.push_str(ws),
-            Token::Comment(comment) => result.push_str(comment),
-            Token::Identifier(ident) => result.push_str(ident),
-            Token::IntegerLiteral(num) => result.push_str(num),
-            Token::FloatLiteral(num) => result.push_str(num),
-            Token::StringLiteral(s) => {
-                result.push('"');
-                result.push_str(s);
-                result.push('"');
-            }
-            Token::CharLiteral(c) => {
-                result.push('\'');
-                result.push_str(c);
-                result.push('\'');
-            }
-            // For all other tokens, use their string representation
-            _ => result.push_str(&format!("{:?}", token_info.token).to_lowercase()),
-        }
+    if debug {
+        print_tokens(&extracted_tokens);
     }
 
-    result
+    let solved_tokens = template_solver::solve_templates(templates, struct_templates, extracted_tokens)?;
+
+    if debug {
+        print_tokens(&solved_tokens);
+    }
+
+    Ok(code_generator::generate_code(&solved_tokens))
 }
 
 /// Prints tokens for debugging

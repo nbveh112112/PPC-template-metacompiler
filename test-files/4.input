@@ -1,11 +1,30 @@
 template {T}
-T summ(T a, T b);
-
-int main() {
-    summ{int}(1, 2);
-}
+struct Wrapper {
+    T a;
+};
 
 template {T}
-T summ(T a, T b) {
-    return a + b;
+typedef struct {
+    T a;
+} Wrapper2;
+
+template {T}
+typedef struct Wrapper3 {
+    T a;
+} Wrapper3;
+
+
+typedef struct Wrapper Wrapper;
+
+int main() {
+    struct Wrapper{int} a = {1};
+    Wrapper2 {int} b = {1};
+    Wrapper3{int} c = {1};
+    struct Wrapper3{int} e = {1};
+    Wrapper{int} d = {1};
 }
+
+//one line
+
+/* two
+line */

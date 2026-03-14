@@ -1,6 +1,26 @@
 use std::collections::HashMap;
+use thiserror::Error;
 use crate::tokenizer::{Token, TokenInfo};
 use crate::utils::{skip_whitespace, check_next_token, skip_paren_seq};
+
+#[derive(Error, Debug, Clone, PartialEq)]
+#[allow(dead_code)]
+pub enum TemplateExtractorError {
+    #[error("Unexpected end of file while parsing template definition")]
+    UnexpectedEOF,
+    #[error("Expected token '{expected}' but found '{found}'")]
+    UnexpectedToken { expected: String, found: String },
+    #[error("Unmatched braces in template definition")]
+    UnmatchedBraces,
+    #[error("Expected identifier for template name but found '{found}'")]
+    ExpectedIdentifier { found: String },
+    #[error("Expected ';' at end of template definition but found '{found}'")]
+    ExpectedSemicolon { found: String },
+    #[error("Expected 'template' keyword but found '{found}'")]
+    ExpectedTemplateKeyword { found: String },
+    #[error("Typedef exit")]
+    TypedefExit
+}
 
 #[derive(Debug, Clone)]
 pub struct TemplateDefinition {
@@ -19,16 +39,18 @@ pub enum TemplateKind {
 
 pub struct TemplateExtractor {
     pub templates: HashMap<String, TemplateDefinition>,
+    pub struct_templates: HashMap<String, TemplateDefinition>
 }
 
 impl TemplateExtractor {
     pub fn new() -> Self {
         Self {
             templates: HashMap::new(),
+            struct_templates: HashMap::new(),
         }
     }
 
-    fn collect_templates(&mut self, tokens: Vec<TokenInfo>) -> Result<Vec<TokenInfo>, String> {
+    fn collect_templates(&mut self, tokens: Vec<TokenInfo>) -> Result<Vec<TokenInfo>, TemplateExtractorError> {
         let mut result = Vec::new();
         let mut i = 0;
 
@@ -65,16 +87,18 @@ impl TemplateExtractor {
             }
         }
 
+        result = self.find_typedef_templates(&*result)?;
+
         Ok(result)
     }
 
     /// Parse a template definition starting from "template" keyword
-    fn parse_template_definition(&mut self, tokens: &[TokenInfo]) -> Result<(usize, Option<String>, Option<String>), String> {
+    fn parse_template_definition(&mut self, tokens: &[TokenInfo]) -> Result<(usize, Option<String>, Option<String>), TemplateExtractorError> {
         let mut i = 0;
 
         // Skip "template" keyword
         if !matches!(tokens[i].token, Token::Template) {
-            return Err("Expected 'template' keyword".to_string());
+            return Err(TemplateExtractorError::ExpectedTemplateKeyword { found: format!("{:?}", tokens[i].token) });
         }
         i += 1;
 
@@ -83,14 +107,15 @@ impl TemplateExtractor {
 
         // Parse template parameters: { param1, param2, ... }
         if !matches!(tokens[i].token, Token::LeftBrace) {
-            return Err("Expected '{' after 'template'".to_string());
+            return Err(TemplateExtractorError::UnexpectedToken { expected: "{".to_string(), found: format!("{:?}", tokens[i].token) });
         }
         i += 1;
 
-        let params = self.parse_parameter_list(tokens, &mut i)?;
+        let (params, finish) = self.parse_parameter_list(tokens, i)?;
+        i = finish;
 
         if !matches!(tokens[i].token, Token::RightBrace) {
-            return Err("Expected '}' after template parameters".to_string());
+            return Err(TemplateExtractorError::UnexpectedToken { expected: "}".to_string(), found: format!("{:?}", tokens[i].token) });
         }
         i += 1;
 
@@ -101,20 +126,20 @@ impl TemplateExtractor {
             Token::Struct => {
                 let (mut template_def, consumed) = self.parse_struct(tokens, i)?;
                 template_def.params = params;
-                self.templates.insert(template_def.name.clone(), template_def.clone());
+                self.struct_templates.insert(template_def.name.clone(), template_def.clone());
                 Ok((consumed, Some(template_def.name.clone()), None))
             },
             Token::Typedef => {
                 let res = self.parse_typedef(tokens, i);
-                if let Err(e) = res.clone() {
-                    if e == "{" {
+                if let Err(ref e) = res {
+                    if *e == TemplateExtractorError::TypedefExit {
                         return Ok((0, None, None));
                     }
                 }
                 let (opt_struct, mut template_def, consumed) = res?;
                 if let Some(mut struct_def) = opt_struct.clone() {
                     struct_def.params = params.clone();
-                    self.templates.insert(struct_def.name.clone(), struct_def);
+                    self.struct_templates.insert(struct_def.name.clone(), struct_def);
                 }
                 template_def.params = params;
                 self.templates.insert(template_def.name.clone(), template_def.clone());
@@ -126,63 +151,64 @@ impl TemplateExtractor {
                 if !self.templates.contains_key(&template_def.name) || is_declaration {
                     self.templates.insert(template_def.name.clone(), template_def.clone());
                 }
-                return Ok((consumed, None, None));
+                return Ok((consumed, Some(template_def.name.clone()), None));
             }
         };
     }
 
     /// Parse comma-separated parameter list
-    fn parse_parameter_list(&self, tokens: &[TokenInfo], i: &mut usize) -> Result<Vec<String>, String> {
+    fn parse_parameter_list(&self, tokens: &[TokenInfo], start: usize) -> Result<(Vec<String>, usize), TemplateExtractorError> {
         let mut params = Vec::new();
-        *i = skip_whitespace(tokens, *i);
+        let mut i   = start;
+        i = skip_whitespace(tokens, i);
 
-        while *i < tokens.len() {
-            if matches!(tokens[*i].token, Token::RightBrace) {
+        while i < tokens.len() {
+            if matches!(tokens[i].token, Token::RightBrace) {
                 break;
             }
 
-            if let Token::Identifier(param) = &tokens[*i].token {
+            if let Token::Identifier(param) = tokens[i].token.clone() {
                 params.push(param.clone());
-                *i += 1;
+                i += 1;
             } else {
-                return Err(format!("Expected identifier in parameter list, got {:?}", tokens[*i].token));
+                return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
             }
 
-            *i = skip_whitespace(tokens, *i);
+            i = skip_whitespace(tokens, i);
 
-            if matches!(tokens[*i].token, Token::Comma) {
-                *i += 1;
-                *i = skip_whitespace(tokens, *i);
+            if matches!(tokens[i].token, Token::Comma) {
+                i += 1;
+                i = skip_whitespace(tokens, i);
             }
         }
 
-        Ok(params)
+        Ok((params, i))
     }
 
-    fn parse_function(&self, tokens: &[TokenInfo], start: usize) -> Result<(TemplateDefinition, bool, usize), String> {
+    fn parse_function(&self, tokens: &[TokenInfo], start: usize) -> Result<(TemplateDefinition, bool, usize), TemplateExtractorError> {
         let mut i = start;
 
-        while i < tokens.len() && (!matches!(&tokens[i].token, Token::LeftParen) || !matches!(&tokens[i].token, Token::Less)) {
+        while i < tokens.len() && !(matches!(tokens[i].token, Token::LeftParen) || matches!(tokens[i].token, Token::Less)) {
             i += 1;
         }
 
         if i >= tokens.len() {
-            return Err("Expected function params".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
-        while i < tokens.len() && !matches!(&tokens[i].token, Token::Identifier(_)) {
+        while i < tokens.len() && !matches!(tokens[i].token, Token::Identifier(_)) {
             i -= 1;
         }
 
         // Get template name
         if i >= tokens.len() {
-            return Err("Expected template name".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
-        let name = if let Token::Identifier(n) = &tokens[i].token {
+        let name = if let Token::Identifier(n) = tokens[i].token.clone() {
             n.clone()
         } else {
-            return Err("Expected identifier for template name".to_string());
+            return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
         };
         i += 1;
 
@@ -190,7 +216,7 @@ impl TemplateExtractor {
         i = skip_whitespace(tokens, i);
 
         if i >= tokens.len() {
-            return Err("Unexpected end of file".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
         if matches!(tokens[i].token, Token::Less) {
@@ -200,7 +226,7 @@ impl TemplateExtractor {
 
         // Skip to semicolon or opening brace
         while i < tokens.len() {
-            match &tokens[i].token {
+            match tokens[i].token {
                 Token::Semicolon => return Ok((
                     TemplateDefinition {
                         params: Vec::new(),
@@ -209,29 +235,30 @@ impl TemplateExtractor {
                         kind: TemplateKind::Function
                     },
                     false,
-                    i)),
+                    i + 1)),
                 Token::LeftBrace => break,
                 _ => i += 1,
             }
         }
 
         if i >= tokens.len() {
-            return Err("Function end not found".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
         // If we found a brace, match braces
         let mut brace_count = 0;
         while i < tokens.len() {
-            match &tokens[i].token {
+            match tokens[i].token {
                 Token::LeftBrace => brace_count += 1,
                 Token::RightBrace => {
                     brace_count -= 1;
                     if brace_count == 0 {
+                        i += 1;
                         return Ok((
                             TemplateDefinition {
                                 params: Vec::new(),
                                 name,
-                                tokens: tokens[start..=i].to_vec(),
+                                tokens: tokens[start..=(i - 1)].to_vec(),
                                 kind: TemplateKind::Function
                             },
                             true,
@@ -243,15 +270,15 @@ impl TemplateExtractor {
             i += 1;
         }
 
-        Err("Unmatched braces in function definition".to_string())
+        Err(TemplateExtractorError::UnmatchedBraces)
     }
 
-    fn parse_struct(&self, tokens: &[TokenInfo], start: usize) -> Result<(TemplateDefinition, usize), String> {
+    fn parse_struct(&self, tokens: &[TokenInfo], start: usize) -> Result<(TemplateDefinition, usize), TemplateExtractorError> {
         let mut i = start;
 
         // Skip "struct" keyword
         if !matches!(tokens[i].token, Token::Struct) {
-            return Err("Expected 'struct' keyword".to_string());
+            return Err(TemplateExtractorError::UnexpectedToken { expected: "struct".to_string(), found: format!("{:?}", tokens[i].token) });
         }
         i += 1;
 
@@ -260,13 +287,13 @@ impl TemplateExtractor {
 
         // Get struct name
         if i >= tokens.len() {
-            return Err("Expected struct name".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
-        let name = if let Token::Identifier(n) = &tokens[i].token {
+        let name = if let Token::Identifier(n) = tokens[i].token.clone() {
             n.clone()
         } else {
-            return Err("Expected identifier for struct name".to_string());
+            return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
         };
         i += 1;
 
@@ -275,10 +302,8 @@ impl TemplateExtractor {
         i = skip_whitespace(tokens, i + 1);
 
         if !matches!(tokens[i].token, Token::Semicolon) {
-            return Err("Expected ';' after struct definition".to_string());
+            return Err(TemplateExtractorError::ExpectedSemicolon { found: format!("{:?}", tokens[i].token) });
         }
-
-        i += 1;
 
         // Collect all tokens until end of struct definition
         let body_end = i;
@@ -295,7 +320,7 @@ impl TemplateExtractor {
         ))
     }
 
-    fn find_body_end(&self, tokens: &[TokenInfo], start: usize) -> Result<usize, String> {
+    fn find_body_end(&self, tokens: &[TokenInfo], start: usize) -> Result<usize, TemplateExtractorError> {
         let mut i = start;
 
         // Find opening brace
@@ -304,13 +329,13 @@ impl TemplateExtractor {
         }
 
         if i >= tokens.len() {
-            return Err("Struct body not found".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
         // Match braces
         let mut brace_count = 0;
         while i < tokens.len() {
-            match &tokens[i].token {
+            match tokens[i].token {
                 Token::LeftBrace => brace_count += 1,
                 Token::RightBrace => {
                     brace_count -= 1;
@@ -327,32 +352,33 @@ impl TemplateExtractor {
             return Ok(i);
         }
 
-        Err("Unmatched braces in struct definition".to_string())
+        Err(TemplateExtractorError::UnmatchedBraces)
     }
 
-    fn parse_typedef(&self, tokens: &[TokenInfo], start: usize) -> Result<(Option<TemplateDefinition>, TemplateDefinition, usize), String> {
+    fn parse_typedef(&self, tokens: &[TokenInfo], start: usize) -> Result<(Option<TemplateDefinition>, TemplateDefinition, usize), TemplateExtractorError> {
         let mut is_struct = false;
 
         let mut i = start;
 
         // Skip "typedef" keyword
         if !matches!(tokens[i].token, Token::Typedef) {
-            return Err("Expected 'typedef' keyword".to_string());
+            return Err(TemplateExtractorError::UnexpectedToken { expected: "typedef".to_string(), found: format!("{:?}", tokens[i].token) });
         }
         i += 1;
 
         // Skip whitespace
         i = skip_whitespace(tokens, i);
 
+        let struct_start = i;
         if !matches!(tokens[i].token, Token::Struct) {
-            return Err("Expected 'struct' keyword in typedef".to_string());
+            return Err(TemplateExtractorError::UnexpectedToken { expected: "struct".to_string(), found: format!("{:?}", tokens[i].token) });
         }
         i += 1;
 
         i = skip_whitespace(tokens, i);
 
         if i >= tokens.len() {
-            return Err("Unexpected end of file".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
         let mut struct_name = "".to_string();
         let mut struct_body_tokens = Vec::new();
@@ -360,20 +386,20 @@ impl TemplateExtractor {
         if matches!(tokens[i].token, Token::Identifier(_)) {
             is_struct = true;
 
-            struct_name = if let Token::Identifier(n) = &tokens[i].token {
+            struct_name = if let Token::Identifier(n) = tokens[i].token.clone() {
                 n.clone()
             } else {
-                return Err("Expected identifier for struct name in typedef".to_string());
+                return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
             };
             struct_name_idx = i;
             i += 1;
 
             if !check_next_token(tokens, i, &Token::LeftBrace) {
-                return Err("{".to_string());
+                return Err(TemplateExtractorError::TypedefExit);
             }
             // Collect all tokens until end of struct definition
             let struct_body_end = self.find_body_end(tokens, i)?;
-            struct_body_tokens = tokens[start..=struct_body_end].to_vec();
+            struct_body_tokens = tokens[struct_start..=struct_body_end].to_vec();
             struct_body_tokens.push(TokenInfo {
                 token: Token::Semicolon,
                 line: tokens[struct_body_end].line,
@@ -386,7 +412,7 @@ impl TemplateExtractor {
 
         if !is_struct {
             if !check_next_token(tokens, i, &Token::LeftBrace) {
-                return Err("{".to_string());
+                return Err(TemplateExtractorError::TypedefExit);
             }
             i = self.find_body_end(tokens, i)?;
         }
@@ -394,18 +420,18 @@ impl TemplateExtractor {
         i = skip_whitespace(tokens, i + 1);
 
         if !matches!(tokens[i].token, Token::Identifier(_)) {
-            return Err("Expected typedef name".to_string());
+            return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
         }
 
-        let typedef_name = if let Token::Identifier(n) = &tokens[i].token {
+        let typedef_name = if let Token::Identifier(n) = tokens[i].token.clone() {
             n.clone()
         } else {
-            return Err("Expected identifier for typedef name".to_string());
+            return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
         };
         i += 1;
 
         if !matches!(tokens[i].token, Token::Semicolon) {
-            return Err("Expected ';' after typedef definition".to_string());
+            return Err(TemplateExtractorError::ExpectedSemicolon { found: format!("{:?}", tokens[i].token) });
         }
         i += 1;
 
@@ -444,7 +470,7 @@ impl TemplateExtractor {
     }
 
 
-    fn find_typedef_templates(&mut self, tokens: &[TokenInfo]) -> Result<Vec<TokenInfo>, String> {
+    fn find_typedef_templates(&mut self, tokens: &[TokenInfo]) -> Result<Vec<TokenInfo>, TemplateExtractorError> {
         let mut result = tokens.to_vec();
 
         let mut replased_flag = true;
@@ -461,12 +487,13 @@ impl TemplateExtractor {
                     if let Some(def) = opt_def {
                         replased_flag = true;
                         self.templates.insert(def.name.clone(), def);
+                        i += consumed;
+                        continue;
                     }
                     if consumed == 0 {
                         result.push(tok[i].clone());
                         i += 1;
                     }
-
                 } else {
                     result.push(tok[i].clone());
                     i += 1;
@@ -478,8 +505,9 @@ impl TemplateExtractor {
         Ok(result)
     }
 
-    fn extract_typedef(&self, tokens: &[TokenInfo], start: usize) -> Result<(Option<TemplateDefinition>, usize), String> {
+    fn extract_typedef(&self, tokens: &[TokenInfo], start: usize) -> Result<(Option<TemplateDefinition>, usize), TemplateExtractorError> {
         let mut i = start;
+        let mut is_struct = false;
         // Skip "typedef" keyword
         if !matches!(tokens[i].token, Token::Typedef) {
             return Ok((None, 0));
@@ -489,13 +517,14 @@ impl TemplateExtractor {
         // Skip whitespace
         i = skip_whitespace(tokens, i);
         if i >= tokens.len() {
-            return Err("Unexpected end of file".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
-        if !matches!(tokens[i].token, Token::Struct) || !matches!(tokens[i].token, Token::Identifier(_)) {
+        if !matches!(tokens[i].token, Token::Struct) && !matches!(tokens[i].token, Token::Identifier(_)) {
             return Ok((None, 0));
         }
         if matches!(tokens[i].token, Token::Struct) {
+            is_struct = true;
             i += 1;
         }
 
@@ -504,14 +533,14 @@ impl TemplateExtractor {
 
         i = skip_whitespace(tokens, i);
         if i >= tokens.len() {
-            return Err("Unexpected end of file".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
         if matches!(tokens[i].token, Token::Identifier(_)) {
-            first_identifier = if let Token::Identifier(n) = &tokens[i].token {
+            first_identifier = if let Token::Identifier(n) = tokens[i].token.clone() {
                 n.clone()
             } else {
-                return Err("Expected identifier in typedef".to_string());
+                return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
             };
             i += 1;
         } else {
@@ -520,22 +549,43 @@ impl TemplateExtractor {
 
         i = skip_whitespace(tokens, i);
         if i >= tokens.len() {
-            return Err("Unexpected end of file".to_string());
+            return Err(TemplateExtractorError::UnexpectedEOF);
         }
 
         if matches!(tokens[i].token, Token::Identifier(_)) {
-            second_identifier = if let Token::Identifier(n) = &tokens[i].token {
+            second_identifier = if let Token::Identifier(n) = tokens[i].token.clone() {
                 n.clone()
             } else {
-                return Err("Expected identifier in typedef".to_string());
+                return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
             };
             i += 1;
         } else {
             return Ok((None, 0));
         }
 
-        if self.templates.contains_key(&first_identifier) {
+        if !matches!(tokens[i].token, Token::Semicolon) {
+            return Ok((None, 0));
+        }
+
+        i += 1;
+
+        if self.templates.contains_key(&first_identifier) && !is_struct {
             let first_template = self.templates.get(&first_identifier).unwrap().clone();
+            if first_template.kind == TemplateKind::Typedef {
+                return Ok(
+                    (Some(TemplateDefinition {
+                        params: first_template.params,
+                        name: second_identifier.clone(),
+                        tokens: self.replace_first_identifier(&*(first_template.tokens.clone()), &first_identifier, &second_identifier),
+                        kind: TemplateKind::Typedef
+                    }), i - start)
+                )
+            }
+            else {
+                return Err(TemplateExtractorError::UnexpectedToken { expected: "struct".to_string(), found: "non-struct template".to_string() });
+            }
+        } else if self.struct_templates.contains_key(&first_identifier) && is_struct {
+            let first_template = self.struct_templates.get(&first_identifier).unwrap().clone();
             if first_template.kind == TemplateKind::Struct {
                 let mut template_tokens = first_template.tokens.clone();
                 template_tokens = self.replace_first_identifier(&template_tokens, &first_identifier, "");
@@ -546,15 +596,22 @@ impl TemplateExtractor {
                     position: tokens[0].position,
                 });
 
+                template_tokens.insert(1, TokenInfo {
+                    token: Token::Whitespace(" ".to_string()),
+                    line: tokens[0].line,
+                    column: tokens[0].column + 1,
+                    position: tokens[0].position + 1,
+                });
+
                 if matches!(template_tokens.last().unwrap().token, Token::Semicolon) {
-                    template_tokens.insert(template_tokens.len() - 2, TokenInfo {
+                    template_tokens.insert(template_tokens.len() - 1, TokenInfo {
                         token: Token::Identifier(second_identifier.clone()),
                         line: tokens[tokens.len() - 1].line,
                         column: tokens[tokens.len() - 1].column,
                         position: tokens[tokens.len() - 1].position,
                     });
                 } else {
-                    return Err("Expected ';' at end of struct definition in typedef".to_string());
+                    return Err(TemplateExtractorError::ExpectedSemicolon { found: format!("{:?}", template_tokens.last().unwrap().token) });
                 }
 
                 return Ok(
@@ -562,24 +619,16 @@ impl TemplateExtractor {
                         params: first_template.params,
                         name: second_identifier,
                         tokens: template_tokens,
-                        kind: TemplateKind::Struct
-                    }), i
-                ));
-
-            } else if first_template.kind == TemplateKind::Typedef {
-                return Ok(
-                    (Some(TemplateDefinition {
-                        params: first_template.params,
-                        name: second_identifier.clone(),
-                        tokens: self.replace_first_identifier(&*(first_template.tokens.clone()), &first_identifier, &second_identifier),
                         kind: TemplateKind::Typedef
-                    }), i)
-                )
+                    }), i - start
+                    ));
             }
             else {
-                return Err("Expected struct name in typedef closure".to_string());
+                return Err(TemplateExtractorError::UnexpectedToken { expected: "non-struct template".to_string(), found: "struct template".to_string() });
             }
-        } else {
+        }
+
+        else {
             return Ok((None, 0));
         }
     }
@@ -609,10 +658,8 @@ impl TemplateExtractor {
         result
     }
 }
-pub fn extract_templates(tokens: Vec<TokenInfo>) -> Result<(Vec<TokenInfo>, HashMap<String, TemplateDefinition>), String> {
+pub fn extract_templates(tokens: Vec<TokenInfo>) -> Result<(Vec<TokenInfo>, HashMap<String, TemplateDefinition>, HashMap<String, TemplateDefinition>), TemplateExtractorError> {
     let mut extractor = TemplateExtractor::new();
     let processed_tokens = extractor.collect_templates(tokens)?;
-    Ok((processed_tokens, extractor.templates))
+    Ok((processed_tokens, extractor.templates, extractor.struct_templates))
 }
-
-
