@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use crate::tokenizer::{Token, TokenInfo};
-use crate::utils::{skip_whitespace, check_next_token, skip_paren_seq};
+use crate::utils;
+use crate::utils::{skip_whitespace, check_next_token, skip_paren_seq, replace_last_identifier};
 
 #[derive(Error, Debug, Clone, PartialEq)]
 #[allow(dead_code)]
@@ -28,6 +29,7 @@ pub struct TemplateDefinition {
     pub name: String,
     pub tokens: Vec<TokenInfo>,
     pub kind: TemplateKind,
+    pub second_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +41,8 @@ pub enum TemplateKind {
 
 pub struct TemplateExtractor {
     pub templates: HashMap<String, TemplateDefinition>,
-    pub struct_templates: HashMap<String, TemplateDefinition>
+    pub struct_templates: HashMap<String, TemplateDefinition>,
+    placeholders: HashSet<String>
 }
 
 impl TemplateExtractor {
@@ -47,6 +50,7 @@ impl TemplateExtractor {
         Self {
             templates: HashMap::new(),
             struct_templates: HashMap::new(),
+            placeholders: HashSet::new()
         }
     }
 
@@ -66,21 +70,12 @@ impl TemplateExtractor {
                     continue;
                 }
                 if let Some(name_) = name {
-                    result.push(TokenInfo{
-                        token: Token::Placeholder(name_),
-                        line: tokens[i - consumed].line,
-                        column: tokens[i - consumed].column,
-                        position: tokens[i - consumed].position,
-                    });
+                    result = self.insert_placeholder(result, name_);
                 }
                 if let Some(opt_name) = option_name {
-                    result.push(TokenInfo{
-                        token: Token::Placeholder(opt_name),
-                        line: tokens[i - consumed].line,
-                        column: tokens[i - consumed].column,
-                        position: tokens[i - consumed].position,
-                    });
+                    result = self.insert_placeholder(result, opt_name);
                 }
+                i = skip_whitespace(&*tokens, i);
             } else {
                 result.push(tokens[i].clone());
                 i += 1;
@@ -122,7 +117,7 @@ impl TemplateExtractor {
         // Skip whitespace
         i = skip_whitespace(tokens, i);
 
-        return match tokens[i].token {
+        let res =  match tokens[i].token {
             Token::Struct => {
                 let (mut template_def, consumed) = self.parse_struct(tokens, i)?;
                 template_def.params = params;
@@ -154,6 +149,8 @@ impl TemplateExtractor {
                 return Ok((consumed, Some(template_def.name.clone()), None));
             }
         };
+
+        res
     }
 
     /// Parse comma-separated parameter list
@@ -232,7 +229,8 @@ impl TemplateExtractor {
                         params: Vec::new(),
                         name,
                         tokens: tokens[start..=i].to_vec(),
-                        kind: TemplateKind::Function
+                        kind: TemplateKind::Function,
+                        second_name: None
                     },
                     false,
                     i + 1)),
@@ -259,7 +257,8 @@ impl TemplateExtractor {
                                 params: Vec::new(),
                                 name,
                                 tokens: tokens[start..=(i - 1)].to_vec(),
-                                kind: TemplateKind::Function
+                                kind: TemplateKind::Function,
+                                second_name: None
                             },
                             true,
                             i));
@@ -314,7 +313,8 @@ impl TemplateExtractor {
                 params: Vec::new(),
                 name,
                 tokens: body_tokens,
-                kind: TemplateKind::Struct
+                kind: TemplateKind::Struct,
+                second_name: None
             },
             body_end + 1,
         ))
@@ -369,7 +369,6 @@ impl TemplateExtractor {
         // Skip whitespace
         i = skip_whitespace(tokens, i);
 
-        let struct_start = i;
         if !matches!(tokens[i].token, Token::Struct) {
             return Err(TemplateExtractorError::UnexpectedToken { expected: "struct".to_string(), found: format!("{:?}", tokens[i].token) });
         }
@@ -381,8 +380,6 @@ impl TemplateExtractor {
             return Err(TemplateExtractorError::UnexpectedEOF);
         }
         let mut struct_name = "".to_string();
-        let mut struct_body_tokens = Vec::new();
-        let mut struct_name_idx = 0;
         if matches!(tokens[i].token, Token::Identifier(_)) {
             is_struct = true;
 
@@ -391,31 +388,15 @@ impl TemplateExtractor {
             } else {
                 return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
             };
-            struct_name_idx = i;
             i += 1;
 
-            if !check_next_token(tokens, i, &Token::LeftBrace) {
-                return Err(TemplateExtractorError::TypedefExit);
-            }
-            // Collect all tokens until end of struct definition
-            let struct_body_end = self.find_body_end(tokens, i)?;
-            struct_body_tokens = tokens[struct_start..=struct_body_end].to_vec();
-            struct_body_tokens.push(TokenInfo {
-                token: Token::Semicolon,
-                line: tokens[struct_body_end].line,
-                column: tokens[struct_body_end].column + 1,
-                position: tokens[struct_body_end].position + 1,
-            });
-
-            i = struct_body_end;
         }
 
-        if !is_struct {
-            if !check_next_token(tokens, i, &Token::LeftBrace) {
-                return Err(TemplateExtractorError::TypedefExit);
-            }
-            i = self.find_body_end(tokens, i)?;
+        if !check_next_token(tokens, i, &Token::LeftBrace) {
+            println!("2");
+            return Err(TemplateExtractorError::TypedefExit);
         }
+        i = self.find_body_end(tokens, i)?;
 
         i = skip_whitespace(tokens, i + 1);
 
@@ -435,23 +416,24 @@ impl TemplateExtractor {
         }
         i += 1;
 
-        let mut typedef_tokens = tokens[start..=i].to_vec();
+        let mut typedef_tokens = tokens[start..= (i - 1)].to_vec();
 
         if is_struct {
-            typedef_tokens.remove(struct_name_idx - start);
 
             Ok((
                 Some(TemplateDefinition {
                     params: Vec::new(),
-                    name: struct_name,
-                    tokens: struct_body_tokens,
-                    kind: TemplateKind::Struct
+                    name: struct_name.clone(),
+                    tokens: typedef_tokens.clone(),
+                    kind: TemplateKind::Struct,
+                    second_name: Some(typedef_name.clone())
                 }),
                 TemplateDefinition {
                     params: Vec::new(),
                     name: typedef_name,
                     tokens: typedef_tokens,
-                    kind: TemplateKind::Typedef
+                    kind: TemplateKind::Typedef,
+                    second_name: Some(struct_name)
                 },
                 i,
             ))
@@ -462,7 +444,8 @@ impl TemplateExtractor {
                     params: Vec::new(),
                     name: typedef_name,
                     tokens: typedef_tokens,
-                    kind: TemplateKind::Typedef
+                    kind: TemplateKind::Typedef,
+                    second_name: None
                 },
                 i,
             ))
@@ -483,11 +466,15 @@ impl TemplateExtractor {
 
             while i < tok.len() {
                 if matches!(tok[i].token, Token::Typedef) {
-                    let (opt_def, consumed) = self.extract_typedef(&*tok, i)?;
+                    let (opt_def, placeholder, consumed) = self.extract_typedef(&*tok, i)?;
                     if let Some(def) = opt_def {
                         replased_flag = true;
                         self.templates.insert(def.name.clone(), def);
+                        if placeholder.is_some() {
+                            result = self.insert_placeholder(result, placeholder.unwrap())
+                        }
                         i += consumed;
+                        i = skip_whitespace(tokens, i);
                         continue;
                     }
                     if consumed == 0 {
@@ -505,12 +492,12 @@ impl TemplateExtractor {
         Ok(result)
     }
 
-    fn extract_typedef(&self, tokens: &[TokenInfo], start: usize) -> Result<(Option<TemplateDefinition>, usize), TemplateExtractorError> {
+    fn extract_typedef(&mut self, tokens: &[TokenInfo], start: usize) -> Result<(Option<TemplateDefinition>, Option<String>, usize), TemplateExtractorError> {
         let mut i = start;
         let mut is_struct = false;
         // Skip "typedef" keyword
         if !matches!(tokens[i].token, Token::Typedef) {
-            return Ok((None, 0));
+            return Ok((None, None, 0));
         }
         i += 1;
 
@@ -521,7 +508,7 @@ impl TemplateExtractor {
         }
 
         if !matches!(tokens[i].token, Token::Struct) && !matches!(tokens[i].token, Token::Identifier(_)) {
-            return Ok((None, 0));
+            return Ok((None, None, 0));
         }
         if matches!(tokens[i].token, Token::Struct) {
             is_struct = true;
@@ -544,7 +531,7 @@ impl TemplateExtractor {
             };
             i += 1;
         } else {
-            return Ok((None, 0));
+            return Ok((None, None, 0));
         }
 
         i = skip_whitespace(tokens, i);
@@ -560,11 +547,11 @@ impl TemplateExtractor {
             };
             i += 1;
         } else {
-            return Ok((None, 0));
+            return Ok((None, None, 0));
         }
 
         if !matches!(tokens[i].token, Token::Semicolon) {
-            return Ok((None, 0));
+            return Ok((None, None, 0));
         }
 
         i += 1;
@@ -576,9 +563,17 @@ impl TemplateExtractor {
                     (Some(TemplateDefinition {
                         params: first_template.params,
                         name: second_identifier.clone(),
-                        tokens: self.replace_first_identifier(&*(first_template.tokens.clone()), &first_identifier, &second_identifier),
-                        kind: TemplateKind::Typedef
-                    }), i - start)
+                        tokens: replace_last_identifier(&*(first_template.tokens), &first_identifier, &second_identifier),
+                        kind: TemplateKind::Typedef,
+                        second_name: utils::first_identifier(first_template.tokens).and_then(|t| {
+                            if let Token::Identifier(iden ) = t.token {
+                                return Some(iden);
+                            }
+                            None
+                        })
+                    }),
+                        Some(second_identifier),
+                     i - start)
                 )
             }
             else {
@@ -588,7 +583,6 @@ impl TemplateExtractor {
             let first_template = self.struct_templates.get(&first_identifier).unwrap().clone();
             if first_template.kind == TemplateKind::Struct {
                 let mut template_tokens = first_template.tokens.clone();
-                template_tokens = self.replace_first_identifier(&template_tokens, &first_identifier, "");
                 template_tokens.insert(0, TokenInfo {
                     token: Token::Typedef,
                     line: tokens[0].line,
@@ -614,13 +608,27 @@ impl TemplateExtractor {
                     return Err(TemplateExtractorError::ExpectedSemicolon { found: format!("{:?}", template_tokens.last().unwrap().token) });
                 }
 
+                let struct_definition = TemplateDefinition {
+                    params: first_template.params.clone(),
+                    name: first_identifier.clone(),
+                    tokens: template_tokens.clone(),
+                    kind: TemplateKind::Struct,
+                    second_name: Some(second_identifier.clone())
+                };
+                let template_definition = TemplateDefinition {
+                    params: first_template.params,
+                    name: second_identifier.clone(),
+                    tokens: template_tokens,
+                    kind: TemplateKind::Typedef,
+                    second_name: Some(first_identifier.clone())
+                };
+
+                self.struct_templates.insert(first_identifier, struct_definition);
+
                 return Ok(
-                    (Some(TemplateDefinition {
-                        params: first_template.params,
-                        name: second_identifier,
-                        tokens: template_tokens,
-                        kind: TemplateKind::Typedef
-                    }), i - start
+                    (Some(template_definition),
+                     Some(second_identifier),
+                     i - start
                     ));
             }
             else {
@@ -629,33 +637,22 @@ impl TemplateExtractor {
         }
 
         else {
-            return Ok((None, 0));
+            return Ok((None, None, 0));
         }
     }
 
-    fn replace_first_identifier(&self, tokens: &[TokenInfo], old: &str, new: &str) -> Vec<TokenInfo> {
-        let mut result = Vec::new();
-        let mut replaced = false;
-        for token_info in tokens {
-            if !replaced {
-                if let Token::Identifier(ident) = &token_info.token {
-                    if ident == old {
-                        if new != "" {
-                            result.push(TokenInfo {
-                                token: Token::Identifier(new.to_string()),
-                                line: token_info.line,
-                                column: token_info.column,
-                                position: token_info.position,
-                            });
-                        }
-                        replaced = true;
-                        continue;
-                    }
-                }
-            }
-            result.push(token_info.clone());
+    fn insert_placeholder(&mut self, mut tokens: Vec<TokenInfo>, name: String) -> Vec<TokenInfo> {
+        if !self.placeholders.contains(&name) {
+            self.placeholders.insert(name.clone());
+
+            tokens.push(TokenInfo{
+                token: Token::Placeholder(name),
+                line: tokens.last().and_then(|t| Some(t.line.clone())).unwrap_or(0),
+                column: tokens.last().and_then(|t| Some(t.column.clone())).unwrap_or(0),
+                position: tokens.last().and_then(|t| Some(t.position.clone())).unwrap_or(0),
+            });
         }
-        result
+        tokens
     }
 }
 pub fn extract_templates(tokens: Vec<TokenInfo>) -> Result<(Vec<TokenInfo>, HashMap<String, TemplateDefinition>, HashMap<String, TemplateDefinition>), TemplateExtractorError> {

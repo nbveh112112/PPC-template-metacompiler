@@ -45,3 +45,38 @@ pub(crate) fn skip_paren_seq(tokens: &[TokenInfo], mut i: usize, token_type : To
     }
     i
 }
+
+pub(crate) fn first_identifier(tokens: Vec<TokenInfo>) -> Option<TokenInfo> {
+    for token_info in tokens {
+        if let Token::Identifier(ident) = &token_info.token {
+            return Some(token_info.clone());
+        }
+    }
+    None
+}
+
+pub(crate) fn replace_last_identifier(tokens: &[TokenInfo], old: &str, new: &str) -> Vec<TokenInfo> {
+    let mut result = Vec::new();
+    let mut replaced = false;
+    for token_info in tokens.iter().rev() {
+        if !replaced {
+            if let Token::Identifier(ident) = &token_info.token {
+                if ident == old {
+                    if new != "" {
+                        result.push(TokenInfo {
+                            token: Token::Identifier(new.to_string()),
+                            line: token_info.line,
+                            column: token_info.column,
+                            position: token_info.position,
+                        });
+                    }
+                    replaced = true;
+                    continue;
+                }
+            }
+        }
+        result.push(token_info.clone());
+    }
+    result.reverse();
+    result
+}

@@ -16,12 +16,17 @@ typedef struct Wrapper3 {
 
 typedef struct Wrapper Wrapper;
 
+typedef Wrapper W;
+
+typedef W D;
+
 int main() {
     struct Wrapper{int} a = {1};
     Wrapper2 {int} b = {1};
     Wrapper3{int} c = {1};
     struct Wrapper3{int} e = {1};
     Wrapper{int} d = {1};
+    D{int} f = {5};
 }
 
 //one line

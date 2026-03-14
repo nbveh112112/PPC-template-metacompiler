@@ -236,9 +236,13 @@ impl TemplateSolver {
                         }
                         self.struct_instantiated_templates.insert(inst.clone());
                         if let Some(template) = self.struct_templates.get(&inst.name) {
-                            result.extend(self.instantiate_struct_template(template, inst));
+                            let (tokens, instantiation) =self.instantiate_struct_template(template, inst);
+                            result.extend(tokens);
+                            if let Some(instantiation) = instantiation {
+                                self.instantiated_templates.insert(instantiation);
+                            }
                             result.push(TokenInfo {
-                                token: Token::Whitespace("\r\n".to_string()),
+                                token: Token::Whitespace("\r\n\r\n".to_string()),
                                 line: result.last().map_or(0, |t| t.line),
                                 column: result.last().map_or(0, |t| t.column + 1),
                                 position: result.last().map_or(0, |t| t.position + 1),
@@ -247,8 +251,7 @@ impl TemplateSolver {
                     }
                 }
 
-                let insts = self.instantiations.get(name);
-                if let Some(insts) = insts {
+                if let Some(insts) = self.instantiations.get(name) {
                     for inst in insts {
                         if self.instantiated_templates.contains(inst) {
                             continue;
@@ -256,13 +259,17 @@ impl TemplateSolver {
                         self.instantiated_templates.insert(inst.clone());
                         if let Some(template) = self.templates.get(&inst.name) {
                             if template.kind == TemplateKind::Typedef {
-                                result.extend(self.instantiate_struct_template(template, inst));
+                                let (tokens, instantiation) =self.instantiate_struct_template(template, inst);
+                                result.extend(tokens);
+                                if let Some(instantiation) = instantiation {
+                                    self.struct_instantiated_templates.insert(instantiation);
+                                }
                             }
                             if template.kind == TemplateKind::Function {
                                 result.extend(self.instantiate_function_template(template, inst, false));
                             }
                             result.push(TokenInfo {
-                                token: Token::Whitespace("\r\n".to_string()),
+                                token: Token::Whitespace("\r\n\r\n".to_string()),
                                 line: result.last().map_or(0, |t| t.line),
                                 column: result.last().map_or(0, |t| t.column + 1),
                                 position: result.last().map_or(0, |t| t.position + 1),
@@ -295,8 +302,9 @@ impl TemplateSolver {
         Ok(result)
     }
 
-    fn instantiate_struct_template(&self, template: &TemplateDefinition, inst: &Instantiation) -> Vec<TokenInfo> {
+    fn instantiate_struct_template(&self, template: &TemplateDefinition, inst: &Instantiation) -> (Vec<TokenInfo>, Option<Instantiation>) {
         let mut result = Vec::new();
+        let mut instantiation = None;
 
         let mut param_map: HashMap<String, Vec<TokenInfo>> = HashMap::new();
         for (param, concrete) in template.params.iter().zip(&inst.concrete_types) {
@@ -306,6 +314,18 @@ impl TemplateSolver {
             if let Token::Identifier(name) = &token_info.token {
                 if let Some(concrete) = param_map.get(name) {
                     result.extend(concrete.iter().cloned());
+                } else if template.second_name.is_some() && name == &template.second_name.clone().unwrap() {
+                    result.push(TokenInfo{
+                        token: Token::Identifier(generate_name(template.second_name.clone().unwrap(), inst.concrete_types.clone())),
+                        line: token_info.line,
+                        column: token_info.column,
+                        position: token_info.position,
+                    });
+
+                    instantiation = Some(Instantiation{
+                        name: template.second_name.clone().unwrap(),
+                        concrete_types: inst.concrete_types.clone(),
+                    });
                 } else if name == &template.name {
                     result.push(TokenInfo{
                         token: Token::Identifier(generate_name(template.name.clone(), inst.concrete_types.clone())),
@@ -313,14 +333,15 @@ impl TemplateSolver {
                         column: token_info.column,
                         position: token_info.position,
                     });
-                } else {
+                }
+                else {
                     result.push(token_info.clone());
                 }
             } else {
                 result.push(token_info.clone());
             }
         }
-        result
+        (result, instantiation)
     }
 
     fn instantiate_function_template(&self, template: &TemplateDefinition, inst: &Instantiation, is_definition: bool ) -> Vec<TokenInfo> {
