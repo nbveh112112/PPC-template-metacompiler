@@ -36,7 +36,8 @@ pub struct TemplateDefinition {
 pub enum TemplateKind {
     Function,
     Struct,
-    Typedef
+    Typedef,
+    TypedefShort
 }
 
 pub struct TemplateExtractor {
@@ -556,89 +557,43 @@ impl TemplateExtractor {
 
         i += 1;
 
-        if self.templates.contains_key(&first_identifier) && !is_struct {
-            let first_template = self.templates.get(&first_identifier).unwrap().clone();
-            if first_template.kind == TemplateKind::Typedef {
+        let mut template = None;
+        if (self.templates.contains_key(&first_identifier) && !is_struct)  {
+            template = self.templates.get(&first_identifier).clone();
+        }
+        if (self.struct_templates.contains_key(&first_identifier) && is_struct) {
+            template = self.struct_templates.get(&first_identifier).clone();
+        }
+
+        if let Some(template) = template {
+            if template.kind == TemplateKind::TypedefShort {
                 return Ok(
                     (Some(TemplateDefinition {
-                        params: first_template.params,
+                        params: template.params.clone(),
                         name: second_identifier.clone(),
-                        tokens: replace_last_identifier(&*(first_template.tokens), &first_identifier, &second_identifier),
-                        kind: TemplateKind::Typedef,
-                        second_name: utils::first_identifier(first_template.tokens).and_then(|t| {
-                            if let Token::Identifier(iden ) = t.token {
-                                return Some(iden);
-                            }
-                            None
-                        })
+                        tokens: replace_last_identifier(&*(template.tokens), &first_identifier, &second_identifier),
+                        kind: TemplateKind::TypedefShort,
+                        second_name: template.second_name.clone()
                     }),
-                        Some(second_identifier),
+                     Some(second_identifier),
+                     i - start)
+                )
+            } else {
+                return Ok(
+                    (Some(TemplateDefinition {
+                        params: template.params.clone(),
+                        name: second_identifier.clone(),
+                        tokens: tokens[start..=(i-1)].to_vec(),
+                        kind: TemplateKind::TypedefShort,
+                        second_name: Some(template.name.clone())
+                    }),
+                     Some(second_identifier),
                      i - start)
                 )
             }
-            else {
-                return Err(TemplateExtractorError::UnexpectedToken { expected: "struct".to_string(), found: "non-struct template".to_string() });
-            }
-        } else if self.struct_templates.contains_key(&first_identifier) && is_struct {
-            let first_template = self.struct_templates.get(&first_identifier).unwrap().clone();
-            if first_template.kind == TemplateKind::Struct {
-                let mut template_tokens = first_template.tokens.clone();
-                template_tokens.insert(0, TokenInfo {
-                    token: Token::Typedef,
-                    line: tokens[0].line,
-                    column: tokens[0].column,
-                    position: tokens[0].position,
-                });
-
-                template_tokens.insert(1, TokenInfo {
-                    token: Token::Whitespace(" ".to_string()),
-                    line: tokens[0].line,
-                    column: tokens[0].column + 1,
-                    position: tokens[0].position + 1,
-                });
-
-                if matches!(template_tokens.last().unwrap().token, Token::Semicolon) {
-                    template_tokens.insert(template_tokens.len() - 1, TokenInfo {
-                        token: Token::Identifier(second_identifier.clone()),
-                        line: tokens[tokens.len() - 1].line,
-                        column: tokens[tokens.len() - 1].column,
-                        position: tokens[tokens.len() - 1].position,
-                    });
-                } else {
-                    return Err(TemplateExtractorError::ExpectedSemicolon { found: format!("{:?}", template_tokens.last().unwrap().token) });
-                }
-
-                let struct_definition = TemplateDefinition {
-                    params: first_template.params.clone(),
-                    name: first_identifier.clone(),
-                    tokens: template_tokens.clone(),
-                    kind: TemplateKind::Struct,
-                    second_name: Some(second_identifier.clone())
-                };
-                let template_definition = TemplateDefinition {
-                    params: first_template.params,
-                    name: second_identifier.clone(),
-                    tokens: template_tokens,
-                    kind: TemplateKind::Typedef,
-                    second_name: Some(first_identifier.clone())
-                };
-
-                self.struct_templates.insert(first_identifier, struct_definition);
-
-                return Ok(
-                    (Some(template_definition),
-                     Some(second_identifier),
-                     i - start
-                    ));
-            }
-            else {
-                return Err(TemplateExtractorError::UnexpectedToken { expected: "non-struct template".to_string(), found: "struct template".to_string() });
-            }
         }
 
-        else {
-            return Ok((None, None, 0));
-        }
+        return Ok((None, None, 0));
     }
 
     fn insert_placeholder(&mut self, mut tokens: Vec<TokenInfo>, name: String) -> Vec<TokenInfo> {

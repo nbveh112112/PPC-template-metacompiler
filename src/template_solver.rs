@@ -258,6 +258,13 @@ impl TemplateSolver {
                         }
                         self.instantiated_templates.insert(inst.clone());
                         if let Some(template) = self.templates.get(&inst.name) {
+                            if template.kind == TemplateKind::TypedefShort {
+                                let (tokens, instantiation) =self.instantiate_struct_template(template, inst);
+                                result.extend(tokens);
+                                if let Some(instantiation) = instantiation {
+                                    self.struct_instantiations.get_mut(&instantiation.name).unwrap().insert(instantiation);
+                                }
+                            }
                             if template.kind == TemplateKind::Typedef {
                                 let (tokens, instantiation) =self.instantiate_struct_template(template, inst);
                                 result.extend(tokens);
