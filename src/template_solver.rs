@@ -32,6 +32,7 @@ pub struct TemplateSolver {
     struct_templates: HashMap<String, TemplateDefinition>,
     instantiations: HashMap<String, HashSet<Instantiation>>,
     struct_instantiations: HashMap<String, HashSet<Instantiation>>,
+    recursive_instantiations: HashMap<String, HashSet<Instantiation>>,
     instantiated_templates: HashSet<Instantiation>,
     struct_instantiated_templates: HashSet<Instantiation>,
 }
@@ -43,20 +44,41 @@ impl TemplateSolver {
             struct_templates,
             instantiations : HashMap::new(),
             struct_instantiations : HashMap::new(),
+            recursive_instantiations: HashMap::new(),
             instantiated_templates: HashSet::new(),
             struct_instantiated_templates: HashSet::new(),
         }
     }
 
     fn instantiations_clean(&mut self) {
+        self.func_instantiations_clean();
+        self.struct_instantiations_clean();
+        self.recursive_instantiations_clean();
+    }
+
+    fn func_instantiations_clean(&mut self) {
         for template_name in self.templates.keys() {
             self.instantiations.insert(template_name.clone(), HashSet::new());
         }
+    }
+
+    fn struct_instantiations_clean(&mut self) {
         for template_name in self.struct_templates.keys() {
             self.struct_instantiations.insert(template_name.clone(), HashSet::new());
         }
     }
 
+    fn recursive_instantiations_clean(&mut self) {
+        for template_name in self.struct_templates.keys() {
+            self.recursive_instantiations.insert(template_name.clone(), HashSet::new());
+        }
+    }
+
+    fn transfer_instantiations(&mut self) {
+        for inst_name in self.recursive_instantiations.keys() {
+            self.struct_instantiations.get_mut(inst_name).unwrap().extend(self.recursive_instantiations.get(inst_name).unwrap().clone());
+        }
+    }
     /// Main entry point: solve all templates in the token stream
     pub fn solve_templates(&mut self, tok: Vec<TokenInfo>) -> Result<Vec<TokenInfo>, TemplateSolverError> {
         let mut tokens = tok.clone();
@@ -68,6 +90,13 @@ impl TemplateSolver {
                 return Ok(tok); // No new instantiations found, we're done
             }
             tokens = self.instantiate_templates(tok)?;
+
+            if !self.recursive_instantiations.iter().all(|p| p.1.is_empty()) {
+                self.func_instantiations_clean();
+                self.struct_instantiations_clean();
+                self.transfer_instantiations();
+                tokens = self.instantiate_templates(tokens)?;
+            }
         }
         Err(TemplateSolverError::MaxDepthExceeded)
     }
@@ -262,7 +291,7 @@ impl TemplateSolver {
                                 let (tokens, instantiation) =self.instantiate_struct_template(template, inst);
                                 result.extend(tokens);
                                 if let Some(instantiation) = instantiation {
-                                    self.struct_instantiations.get_mut(&instantiation.name).unwrap().insert(instantiation);
+                                    self.recursive_instantiations.get_mut(&instantiation.name).unwrap().insert(instantiation);
                                 }
                             }
                             if template.kind == TemplateKind::Typedef {

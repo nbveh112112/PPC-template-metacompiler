@@ -1,7 +1,7 @@
 use crate::tokenizer::{Token, TokenInfo};
 
 
-pub(crate) fn generate_code(tokens: &[TokenInfo]) -> String {
+pub(crate) fn generate_code(tokens: Vec<TokenInfo>) -> String {
     let mut result = String::new();
 
     for token_info in tokens {

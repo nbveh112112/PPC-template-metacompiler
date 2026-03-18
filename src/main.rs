@@ -83,7 +83,7 @@ fn process_content(content: &str, debug: bool) -> std::result::Result<String, an
         print_tokens(&solved_tokens);
     }
 
-    Ok(code_generator::generate_code(&solved_tokens))
+    Ok(code_generator::generate_code(solved_tokens))
 }
 
 /// Prints tokens for debugging

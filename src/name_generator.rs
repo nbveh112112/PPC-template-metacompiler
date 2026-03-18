@@ -25,7 +25,7 @@ fn extract_param_type(param_tokens: &[TokenInfo]) -> String {
             Token::Void => param_type.push_str("_void"),
             Token::Star => param_type.push_str("_ptr"),
             Token::LeftBracket => param_type.push_str("_array"),
-            Token::RightBracket => {} // Ignore right brackets for now
+            Token::LeftParen => param_type.push_str("_func"),
             Token::Dot => param_type.push_str("_dot"),
             Token::Static => param_type.push_str("_static"),
             Token::Const => param_type.push_str("_const"),
