@@ -27,9 +27,5 @@ int main() {
     struct Wrapper3{int} e = {1};
     Wrapper{int} d = {1};
     D{int} f = {5};
+    D{int*};
 }
-
-//one line
-
-/* two
-line */

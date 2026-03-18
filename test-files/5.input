@@ -1,0 +1,16 @@
+template {T}
+struct Wrapper {
+    T a;
+};
+
+typedef struct Wrapper D;
+
+int main() {
+
+    D{int*};
+}
+
+//one line
+
+/* two
+line */

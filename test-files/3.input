@@ -1,64 +1,10 @@
-int compute(int a, int b) {
-    int result = 0;
+template{T, G}
+T func(T t, G g) {
+    return t << g;
+}
 
-    // Arithmetic operations
-    result = a + b;
-    result = a - b;
-    result = a * b;
-    result = a / b;
-    result = a % b;
 
-    // Bitwise operations
-    result = a & b;
-    result = a | b;
-    result = a ^ b;
-    result = ~a;
-    result = a << 2;
-    result = a >> 1;
-
-    // Compound assignments
-    result += a;
-    result -= b;
-    result *= 2;
-    result /= 2;
-    result %= 10;
-    result &= 0xFF;
-    result |= 0x0F;
-    result ^= 0x55;
-    result <<= 1;
-    result >>= 2;
-
-    // Comparison and logical operators
-    if (a == b && a != 0) {
-        result = 1;
-    }
-
-    if (a > b || a < 0) {
-        result = -1;
-    }
-
-    if (!(a <= b) && a >= 0) {
-        result = 42;
-    }
-
-    // Ternary operator
-    result = (a > b) ? a : b;
-
-    // Pointer operations
-    int *ptr = &a;
-    result = *ptr;
-
-    // Array operations
-    int arr[10];
-    result = arr[5];
-
-    // Structure operations
-    struct point {
-        int x;
-        int y;
-    } p = {10, 20};
-
-    result = p.x + p.y;
-
-    return result;
+int main() {
+    func{int, int} (4, 2);
+    func{long, int} (5, 1);
 }
