@@ -4,9 +4,10 @@ use crate::tokenizer::{Token, TokenInfo};
 pub fn generate_name(name : String, params : Vec<Vec<TokenInfo>>) -> String {
     let mut generated_name : String = "template_".to_string();
     generated_name.push_str(&*(name.clone()));
+    generated_name.push_str("_");
     for param in params {
         let param_type = extract_param_type(&param);
-        generated_name.push_str(&format!("__{}", param_type));
+        generated_name.push_str(&format!("_{}", param_type));
     }
     generated_name
 }
@@ -19,6 +20,7 @@ fn extract_param_type(param_tokens: &[TokenInfo]) -> String {
                 param_type.push_str("_");
                 param_type.push_str(ident);},
             Token::Int => param_type.push_str("_int"),
+            Token::Long => param_type.push_str("_long"),
             Token::Float => param_type.push_str("_float"),
             Token::Double => param_type.push_str("_double"),
             Token::Char => param_type.push_str("_char"),

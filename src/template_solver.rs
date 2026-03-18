@@ -3,7 +3,7 @@ use thiserror::Error;
 use crate::name_generator::generate_name;
 use crate::tokenizer::{Token, TokenInfo};
 use crate::template_extractor::{TemplateDefinition, TemplateKind};
-use crate::utils::{skip_whitespace, is_identifier};
+use crate::utils::{skip_whitespace};
 
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -82,7 +82,7 @@ impl TemplateSolver {
     /// Main entry point: solve all templates in the token stream
     pub fn solve_templates(&mut self, tok: Vec<TokenInfo>) -> Result<Vec<TokenInfo>, TemplateSolverError> {
         let mut tokens = tok.clone();
-        for k in 0..(self.templates.len() + 100) {
+        for _k in 0..(self.templates.len() + 100) {
             self.instantiations_clean();
             let (count, mut tok) = self.extract_instantiations(tokens.clone())?;
             if count == 0 {
@@ -437,7 +437,7 @@ impl TemplateSolver {
         let mut result = Vec::new();
 
         for token_info in tokens {
-            if let Token::Placeholder(name) = &token_info.token {
+            if let Token::Placeholder(_) = &token_info.token {
                 continue; // Skip placeholders
             }
             result.push(token_info.clone());

@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use crate::tokenizer::{Token, TokenInfo};
-use crate::utils;
 use crate::utils::{skip_whitespace, check_next_token, skip_paren_seq, replace_last_identifier};
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -417,7 +416,7 @@ impl TemplateExtractor {
         }
         i += 1;
 
-        let mut typedef_tokens = tokens[start..= (i - 1)].to_vec();
+        let typedef_tokens = tokens[start..= (i - 1)].to_vec();
 
         if is_struct {
 
@@ -558,10 +557,10 @@ impl TemplateExtractor {
         i += 1;
 
         let mut template = None;
-        if (self.templates.contains_key(&first_identifier) && !is_struct)  {
+        if self.templates.contains_key(&first_identifier) && !is_struct  {
             template = self.templates.get(&first_identifier).clone();
         }
-        if (self.struct_templates.contains_key(&first_identifier) && is_struct) {
+        if self.struct_templates.contains_key(&first_identifier) && is_struct {
             template = self.struct_templates.get(&first_identifier).clone();
         }
 

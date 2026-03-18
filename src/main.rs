@@ -10,7 +10,7 @@ mod code_generator;
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::fs;
-use tokenizer::{tokenize, Token, TokenInfo};
+use tokenizer::{tokenize, TokenInfo};
 
 
 /// Metacompiler for C language that processes .i files
@@ -33,7 +33,7 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    println!("C Metacompiler - Processing file: {}", args.input);
+    println!("PPC Metacompiler - Processing file: {}", args.input);
 
     // Read input file
     let content = read_file(&args.input)

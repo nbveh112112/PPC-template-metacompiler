@@ -10,10 +10,6 @@ pub(crate) fn skip_whitespace(tokens: &[TokenInfo], mut i: usize) -> usize {
     i
 }
 
-pub(crate) fn is_identifier(token: &Token) -> bool {
-    matches!(token, Token::Identifier(_))
-}
-
 //skips whitespace and comments, then checks if the next token matches the expected token
 pub(crate) fn check_next_token(tokens: &[TokenInfo], i: usize, expected: &Token) -> bool {
     let next_index = skip_whitespace(tokens, i);
@@ -44,15 +40,6 @@ pub(crate) fn skip_paren_seq(tokens: &[TokenInfo], mut i: usize, token_type : To
         i += 1;
     }
     i
-}
-
-pub(crate) fn first_identifier(tokens: Vec<TokenInfo>) -> Option<TokenInfo> {
-    for token_info in tokens {
-        if let Token::Identifier(ident) = &token_info.token {
-            return Some(token_info.clone());
-        }
-    }
-    None
 }
 
 pub(crate) fn replace_last_identifier(tokens: &[TokenInfo], old: &str, new: &str) -> Vec<TokenInfo> {
