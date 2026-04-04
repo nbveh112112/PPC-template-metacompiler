@@ -6,8 +6,7 @@ struct Wrapper {
 typedef struct Wrapper D;
 
 int main() {
-
-    D{int*};
+    D{int*} d;
 }
 
 //one line
