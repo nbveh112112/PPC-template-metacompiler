@@ -22,7 +22,7 @@ pub enum TemplateExtractorError {
     TypedefExit
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct TemplateDefinition {
     pub params: Vec<String>,
     pub name: String,
@@ -31,7 +31,7 @@ pub struct TemplateDefinition {
     pub second_name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TemplateKind {
     Function,
     Struct,
@@ -42,6 +42,7 @@ pub enum TemplateKind {
 pub struct TemplateExtractor {
     pub templates: HashMap<String, TemplateDefinition>,
     pub struct_templates: HashMap<String, TemplateDefinition>,
+    pub additional_templates: HashMap<String, HashSet<TemplateDefinition>>,
     placeholders: HashSet<String>
 }
 
@@ -50,6 +51,7 @@ impl TemplateExtractor {
         Self {
             templates: HashMap::new(),
             struct_templates: HashMap::new(),
+            additional_templates: HashMap::new(),
             placeholders: HashSet::new()
         }
     }
@@ -141,6 +143,20 @@ impl TemplateExtractor {
                 Ok((consumed, Some(template_def.name.clone()), opt_struct.map(|s| s.name)))
             }
             _ => {
+                if let Token::Identifier(_) = (tokens[i].token).clone() {
+                    let (success, mut template_def, consumed) = self.try_parse_template(tokens, i);
+                    if success {
+                        template_def.as_mut().unwrap().params = params;
+                        if self.additional_templates.contains_key(&template_def.as_ref().unwrap().name) {
+                            self.additional_templates.get_mut(&template_def.as_ref().unwrap().name).unwrap().insert(template_def.as_ref().unwrap().clone());
+                        } else {
+                            let mut set = HashSet::new();
+                            set.insert(template_def.as_ref().unwrap().clone());
+                            self.additional_templates.insert(set.iter().next().unwrap().name.clone(), set);
+                        }
+                        return Ok((consumed, Some(template_def.unwrap().name.clone()), None));
+                    }
+                }
                 let (mut template_def, is_declaration, consumed) = self.parse_function(tokens, i)?;
                 template_def.params = params;
                 if !self.templates.contains_key(&template_def.name) || is_declaration {
@@ -400,6 +416,14 @@ impl TemplateExtractor {
 
         i = skip_whitespace(tokens, i + 1);
 
+        if matches!(tokens[i].token, Token::Less) {
+            while !matches!(tokens[i].token, Token::Greater) {
+                i += 1;
+            }
+            i += 1;
+            i = skip_whitespace(tokens, i + 1);
+        }
+
         if !matches!(tokens[i].token, Token::Identifier(_)) {
             return Err(TemplateExtractorError::ExpectedIdentifier { found: format!("{:?}", tokens[i].token) });
         }
@@ -450,6 +474,93 @@ impl TemplateExtractor {
                 i,
             ))
         }
+    }
+
+
+    // parse this kind of template, if failed return false
+    // Figure{T} + < rect: Rectangle; >;
+    fn try_parse_template(&self, tokens: &[TokenInfo], start: usize) -> (bool, Option<TemplateDefinition>, usize) {
+        let mut i = start;
+
+        // Expect identifier (template name)
+        let template_name = if let Token::Identifier(name) = tokens[i].token.clone() {
+            name.clone()
+        } else {
+            return (false, None, 0);
+        };
+        i += 1;
+
+        // Expect opening brace {
+        i = skip_whitespace(tokens, i);
+        if i >= tokens.len() || !matches!(tokens[i].token, Token::LeftBrace) {
+            return (false, None, 0);
+        }
+        i += 1;
+
+        i = skip_whitespace(tokens, i);
+
+        // Collect parameters until closing brace
+        while i < tokens.len() && !matches!(tokens[i].token, Token::RightBrace) {
+            i += 1;
+        }
+
+        // Expect closing brace }
+        if i >= tokens.len() || !matches!(tokens[i].token, Token::RightBrace) {
+            return (false, None, 0);
+        }
+        i += 1;
+
+        // Skip whitespace and expect + operator
+        i = skip_whitespace(tokens, i);
+        if i >= tokens.len() || !matches!(tokens[i].token, Token::Plus) {
+            return (false, None, 0);
+        }
+        i += 1;
+
+        // Skip whitespace and expect <
+        i = skip_whitespace(tokens, i);
+        if i >= tokens.len() || !matches!(tokens[i].token, Token::Less) {
+            return (false, None, 0);
+        }
+        i += 1;
+
+        // Find the matching > and collect all tokens inside
+        let mut angle_depth = 1;
+        while i < tokens.len() && angle_depth > 0 {
+            match tokens[i].token {
+                Token::Less => angle_depth += 1,
+                Token::Greater => angle_depth -= 1,
+                _ => {}
+            }
+            if angle_depth > 0 {
+                i += 1;
+            }
+        }
+
+        // Expect closing >
+        if i >= tokens.len() || !matches!(tokens[i].token, Token::Greater) {
+            return (false, None, 0);
+        }
+
+        i += 1;
+
+        // Expect semicolon
+        i = skip_whitespace(tokens, i);
+        if i >= tokens.len() || !matches!(tokens[i].token, Token::Semicolon) {
+            return (false, None, 0);
+        }
+        i += 1;
+
+        // Create the template definition
+        let template_def = TemplateDefinition {
+            params: Vec::new(),
+            name: template_name,
+            tokens: tokens[start..=(i - 1)].to_vec(),
+            kind: TemplateKind::Typedef,
+            second_name: None,
+        };
+
+        (true, Some(template_def), i)
     }
 
 
@@ -587,7 +698,7 @@ impl TemplateExtractor {
                         second_name: Some(template.name.clone())
                     }),
                      Some(second_identifier),
-                     i - start)
+                     i)
                 )
             }
         }
@@ -609,8 +720,8 @@ impl TemplateExtractor {
         tokens
     }
 }
-pub fn extract_templates(tokens: Vec<TokenInfo>) -> Result<(Vec<TokenInfo>, HashMap<String, TemplateDefinition>, HashMap<String, TemplateDefinition>), TemplateExtractorError> {
+pub fn extract_templates(tokens: Vec<TokenInfo>) -> Result<(Vec<TokenInfo>, HashMap<String, TemplateDefinition>, HashMap<String, TemplateDefinition>, HashMap<String, HashSet<TemplateDefinition>>), TemplateExtractorError> {
     let mut extractor = TemplateExtractor::new();
     let processed_tokens = extractor.collect_templates(tokens)?;
-    Ok((processed_tokens, extractor.templates, extractor.struct_templates))
+    Ok((processed_tokens, extractor.templates, extractor.struct_templates, extractor.additional_templates))
 }

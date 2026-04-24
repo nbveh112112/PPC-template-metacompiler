@@ -1,0 +1,22 @@
+#include <stdio.h>
+
+template{T, U}
+typedef struct Pairs {T first; U second;} Pair;
+
+template {T, U}
+Pair{T, U} makePair(T first, U second) {
+    Pair{T, U} p;
+    p.first = first;
+    p.second = second;
+    return p;
+}
+
+int main() {
+    Pair{int, float} p1 = makePair{int, float}(5, 3.14);
+    Pair{char, char} p2 = makePair{char, char}('A', 'B');
+
+    printf("Pair 1 of int and int: (%d, %.2f)\n", p1.first, p1.second);
+    printf("Pair 2 of char and char: ('%c', '%c')\n", p2.first, p2.second);
+
+    return 0;
+}

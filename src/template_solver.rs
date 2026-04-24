@@ -30,6 +30,7 @@ struct Instantiation {
 pub struct TemplateSolver {
     templates: HashMap<String, TemplateDefinition>,
     struct_templates: HashMap<String, TemplateDefinition>,
+    additional_templates: HashMap<String, HashSet<TemplateDefinition>>,
     instantiations: HashMap<String, HashSet<Instantiation>>,
     struct_instantiations: HashMap<String, HashSet<Instantiation>>,
     recursive_instantiations: HashMap<String, HashSet<Instantiation>>,
@@ -38,10 +39,11 @@ pub struct TemplateSolver {
 }
 
 impl TemplateSolver {
-    pub fn new(templates : HashMap<String, TemplateDefinition>, struct_templates : HashMap<String, TemplateDefinition> ) -> Self {
+    pub fn new(templates : HashMap<String, TemplateDefinition>, struct_templates : HashMap<String, TemplateDefinition>, additional_templates : HashMap<String, HashSet<TemplateDefinition>>) -> Self {
         Self {
             templates,
             struct_templates,
+            additional_templates,
             instantiations : HashMap::new(),
             struct_instantiations : HashMap::new(),
             recursive_instantiations: HashMap::new(),
@@ -227,6 +229,8 @@ impl TemplateSolver {
                         brace_count -= 1;
                         param_tokens.push(tokens[i].clone());
                     }
+                    Token::Whitespace(_) | Token::Comment(_) => {
+                    }
                     Token::Comma if brace_count == 0 => {
                         break;
                     }
@@ -257,8 +261,7 @@ impl TemplateSolver {
 
         for token_info in tokens {
             if let Token::Placeholder(name) = &token_info.token {
-                let insts = self.struct_instantiations.get(name);
-                if let Some(insts) = insts {
+                if let Some(insts) = self.struct_instantiations.get(name) {
                     for inst in insts {
                         if self.struct_instantiated_templates.contains(inst) {
                             continue;
@@ -276,6 +279,19 @@ impl TemplateSolver {
                                 column: result.last().map_or(0, |t| t.column + 1),
                                 position: result.last().map_or(0, |t| t.position + 1),
                             })
+                        }
+
+                        if let Some(additional) = self.additional_templates.get(name) {
+                            for template in additional {
+                                let tokens =self.instantiate_additional_template(template, inst);
+                                result.extend(tokens);
+                                result.push(TokenInfo {
+                                    token: Token::Whitespace("\r\n\r\n".to_string()),
+                                    line: result.last().map_or(0, |t| t.line),
+                                    column: result.last().map_or(0, |t| t.column + 1),
+                                    position: result.last().map_or(0, |t| t.position + 1),
+                                })
+                            }
                         }
                     }
                 }
@@ -310,6 +326,19 @@ impl TemplateSolver {
                                 column: result.last().map_or(0, |t| t.column + 1),
                                 position: result.last().map_or(0, |t| t.position + 1),
                             })
+                        }
+
+                        if let Some(additional) = self.additional_templates.get(name) {
+                            for template in additional {
+                                let tokens =self.instantiate_additional_template(template, inst);
+                                result.extend(tokens);
+                                result.push(TokenInfo {
+                                    token: Token::Whitespace("\r\n\r\n".to_string()),
+                                    line: result.last().map_or(0, |t| t.line),
+                                    column: result.last().map_or(0, |t| t.column + 1),
+                                    position: result.last().map_or(0, |t| t.position + 1),
+                                })
+                            }
                         }
                     }
                 }
@@ -380,6 +409,28 @@ impl TemplateSolver {
         (result, instantiation)
     }
 
+    fn instantiate_additional_template(&self, template: &TemplateDefinition, inst: &Instantiation) -> Vec<TokenInfo> {
+        let mut result = Vec::new();
+
+        let mut param_map: HashMap<String, Vec<TokenInfo>> = HashMap::new();
+        for (param, concrete) in template.params.iter().zip(&inst.concrete_types) {
+            param_map.insert(param.clone(), concrete.clone());
+        }
+        for token_info in &template.tokens {
+            if let Token::Identifier(name) = &token_info.token {
+                if let Some(concrete) = param_map.get(name) {
+                    result.extend(concrete.iter().cloned());
+                }
+                else {
+                    result.push(token_info.clone());
+                }
+            } else {
+                result.push(token_info.clone());
+            }
+        }
+        result
+    }
+
     fn instantiate_function_template(&self, template: &TemplateDefinition, inst: &Instantiation, is_definition: bool ) -> Vec<TokenInfo> {
         let mut result = Vec::new();
         // Assuming TemplateDefinition has fields: parameters: Vec<String>, body: Vec<TokenInfo>
@@ -448,7 +499,7 @@ impl TemplateSolver {
     }
 }
 
-pub fn solve_templates(templates: HashMap<String, TemplateDefinition>, struct_templates: HashMap<String, TemplateDefinition>, tokens: Vec<TokenInfo>) -> Result<Vec<TokenInfo>, TemplateSolverError> {
-    let mut solver = TemplateSolver::new(templates, struct_templates);
+pub fn solve_templates(templates: HashMap<String, TemplateDefinition>, struct_templates: HashMap<String, TemplateDefinition>, additional_templates : HashMap<String, HashSet<TemplateDefinition>>, tokens: Vec<TokenInfo>) -> Result<Vec<TokenInfo>, TemplateSolverError> {
+    let mut solver = TemplateSolver::new(templates, struct_templates, additional_templates);
     solver.solve_templates(tokens)
 }

@@ -1,0 +1,18 @@
+#include stdio.h
+
+template{T}
+T max(T a, T b) {
+    return a > b ? a : b;
+}
+
+int main() {
+    int a = 5, b = 10;
+    float x = 3.5, y = 2.5;
+    char c1 = 'A', c2 = 'B';
+
+    printf("Max of %d and %d is %d\n", a, b, max{int}(a, b));
+    printf("Max of %.1f and %.1f is %.1f\n", x, y, max{float}(x, y));
+    printf("Max of '%c' and '%c' is '%c'\n", c1, c2, max{char}(c1, c2));
+
+    return 0;
+}

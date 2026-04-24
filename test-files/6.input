@@ -1,0 +1,26 @@
+template {T}
+typedef struct Figure {T color} <> Figure;
+
+template {T}
+Figure{T}* setColor(Figure{T}* f, T color) {
+    f->color = color;
+    return f;
+}
+
+template {T}
+T getColor(Figure{T}* f) {
+    return f->color;
+}
+
+template{T}
+Figure{T} + < rect: Rectangle; >;
+
+template{T}
+Figure{T} + < trian: Triangle; >;
+
+int main() {
+    struct Figure{int}.rect intColorFigure;
+    Figure{int} *intColorFigurePtr;
+    intColorFigurePtr = setColor{int}(&intColorFigure, (int)RED);
+}
+

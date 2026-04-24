@@ -71,13 +71,13 @@ fn process_content(content: &str, debug: bool) -> std::result::Result<String, an
         print_tokens(&tokens);
     }
 
-    let (extracted_tokens, templates, struct_templates) = template_extractor::extract_templates(tokens)?;
+    let (extracted_tokens, templates, struct_templates, additional_templates) = template_extractor::extract_templates(tokens)?;
 
     if debug {
         print_tokens(&extracted_tokens);
     }
 
-    let solved_tokens = template_solver::solve_templates(templates, struct_templates, extracted_tokens)?;
+    let solved_tokens = template_solver::solve_templates(templates, struct_templates, additional_templates, extracted_tokens)?;
 
     if debug {
         print_tokens(&solved_tokens);
