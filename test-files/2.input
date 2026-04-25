@@ -3,8 +3,7 @@ T sum (T a, T b) {
     return a + b;
 }
 
-
 int main () {
-    sum{int}(1, 2);
     sum{double}(1.1, 2.1);
+    return sum{int}(1, 2);
 }

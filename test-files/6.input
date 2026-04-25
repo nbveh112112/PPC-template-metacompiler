@@ -15,12 +15,9 @@ T getColor(Figure{T}* f) {
 template{T}
 Figure{T} + < rect: Rectangle; >;
 
-template{T}
-Figure{T} + < trian: Triangle; >;
-
 int main() {
     struct Figure{int}.rect intColorFigure;
     Figure{int} *intColorFigurePtr;
-    intColorFigurePtr = setColor{int}(&intColorFigure, (int)RED);
+    intColorFigurePtr = setColor{int}(&intColorFigure, 3);
 }
 

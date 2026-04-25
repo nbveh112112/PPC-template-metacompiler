@@ -1,0 +1,17 @@
+template{T, U}
+typedef struct Pairs {T first; U second;} Pair;
+
+template {T, U}
+Pair{T, U} makePair(T first, U second) {
+    Pair{T, U} p;
+    p.first = first;
+    p.second = second;
+    return p;
+}
+
+int main() {
+    Pair{int, float} p1 = makePair{int, float}(5, 3.14);
+    Pair{char, char} p2 = makePair{char, char}('A', 'B');
+
+    return 0;
+}

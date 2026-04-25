@@ -3,10 +3,11 @@ struct Wrapper {
     T a;
 };
 
-typedef struct Wrapper D;
+typedef struct Wrapper W;
 
 int main() {
-    D{int*} d;
+	struct Wrapper{int[3]} a;
+    W{int*} d;
 }
 
 //one line
