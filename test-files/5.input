@@ -6,7 +6,7 @@ struct Wrapper {
 typedef struct Wrapper W;
 
 int main() {
-	struct Wrapper{int[3]} a;
+	struct Wrapper{float} a;
     W{int*} d;
 }
 

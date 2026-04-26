@@ -1,4 +1,4 @@
-#include stdio.h
+#include <stdio.h>
 
 template{T}
 T max(T a, T b) {
