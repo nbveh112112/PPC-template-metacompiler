@@ -1,0 +1,13 @@
+struct Figure {}<>;
+
+template{T}
+typedef struct Triangle {T a, b, c;} Triangle;
+
+template{T}
+Figure + <trian, t: Triangle{T};>;
+
+int main() {
+	struct Figure.t{float} t1;
+	struct Figure.trian{int} t2;
+	struct Figure.Triangle{float} t3;
+}

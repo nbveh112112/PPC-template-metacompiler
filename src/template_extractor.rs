@@ -144,17 +144,28 @@ impl TemplateExtractor {
             }
             _ => {
                 if let Token::Identifier(_) = (tokens[i].token).clone() {
-                    let (success, mut template_def, consumed) = self.try_parse_template(tokens, i);
-                    if success {
-                        template_def.as_mut().unwrap().params = params;
-                        if self.additional_templates.contains_key(&template_def.as_ref().unwrap().name) {
-                            self.additional_templates.get_mut(&template_def.as_ref().unwrap().name).unwrap().insert(template_def.as_ref().unwrap().clone());
+                    let (template_def, aliases, consumed) = self.try_parse_template(tokens, i);
+                    if let Some(mut template_def) = template_def {
+                        template_def.params = params;
+                        if self.additional_templates.contains_key(&template_def.name) {
+                            self.additional_templates.get_mut(&template_def.name).unwrap().insert(template_def.clone());
                         } else {
                             let mut set = HashSet::new();
-                            set.insert(template_def.as_ref().unwrap().clone());
+                            set.insert(template_def.clone());
                             self.additional_templates.insert(set.iter().next().unwrap().name.clone(), set);
                         }
-                        return Ok((consumed, Some(template_def.unwrap().name.clone()), None));
+
+                        for alias in aliases {
+                            if self.additional_templates.contains_key(&alias) {
+                                self.additional_templates.get_mut(&alias).unwrap().insert(template_def.clone());
+                            } else {
+                                let mut set = HashSet::new();
+                                set.insert(template_def.clone());
+                                self.additional_templates.insert(alias, set);
+                            }
+                        }
+
+                        return Ok((consumed, Some(template_def.name.clone()), None));
                     }
                 }
                 let (mut template_def, is_declaration, consumed) = self.parse_function(tokens, i)?;
@@ -479,57 +490,78 @@ impl TemplateExtractor {
 
     // parse this kind of template, if failed return false
     // Figure{T} + < rect: Rectangle; >;
-    fn try_parse_template(&self, tokens: &[TokenInfo], start: usize) -> (bool, Option<TemplateDefinition>, usize) {
+    // or Figure + < rect: Rectangle{T}; >;
+    fn try_parse_template(&self, tokens: &[TokenInfo], start: usize) -> (Option<TemplateDefinition>, Vec<String>, usize) {
         let mut i = start;
+        let mut is_second = true;
 
         // Expect identifier (template name)
         let template_name = if let Token::Identifier(name) = tokens[i].token.clone() {
             name.clone()
         } else {
-            return (false, None, 0);
+            return (None, Vec::new(), 0);
         };
         i += 1;
 
-        // Expect opening brace {
+        //  opening brace {
         i = skip_whitespace(tokens, i);
-        if i >= tokens.len() || !matches!(tokens[i].token, Token::LeftBrace) {
-            return (false, None, 0);
+        if matches!(tokens[i].token, Token::LeftBrace) {
+            i += 1;
+            is_second = false;
+            // Collect parameters until closing brace
+            while i < tokens.len() && !matches!(tokens[i].token, Token::RightBrace) {
+                i += 1;
+            }
         }
-        i += 1;
+        if i >= tokens.len() {
+            return (None, Vec::new(), 0);
+        }
 
         i = skip_whitespace(tokens, i);
 
-        // Collect parameters until closing brace
-        while i < tokens.len() && !matches!(tokens[i].token, Token::RightBrace) {
+        // closing brace }
+        if  matches!(tokens[i].token, Token::RightBrace) {
             i += 1;
         }
-
-        // Expect closing brace }
-        if i >= tokens.len() || !matches!(tokens[i].token, Token::RightBrace) {
-            return (false, None, 0);
+        if i >= tokens.len() {
+            return (None, Vec::new(), 0);
         }
-        i += 1;
+
 
         // Skip whitespace and expect + operator
         i = skip_whitespace(tokens, i);
         if i >= tokens.len() || !matches!(tokens[i].token, Token::Plus) {
-            return (false, None, 0);
+            return (None, Vec::new(), 0);
         }
         i += 1;
 
         // Skip whitespace and expect <
         i = skip_whitespace(tokens, i);
         if i >= tokens.len() || !matches!(tokens[i].token, Token::Less) {
-            return (false, None, 0);
+            return (None, Vec::new(), 0);
         }
         i += 1;
 
+        let mut second_name: Option<String> = None;
+        let mut is_alias: bool = true;
+        let mut aliases : Vec<String> = Vec::new();
         // Find the matching > and collect all tokens inside
         let mut angle_depth = 1;
         while i < tokens.len() && angle_depth > 0 {
-            match tokens[i].token {
+            match &tokens[i].token {
                 Token::Less => angle_depth += 1,
                 Token::Greater => angle_depth -= 1,
+                Token::Identifier(name) => {
+                    if is_alias {
+                        aliases.push(name.clone())
+                    }
+                    else if !second_name.is_some(){
+                        second_name = Some(name.clone())
+                    }
+                }
+                Token::Colon => {
+                    is_alias = false;
+                }
                 _ => {}
             }
             if angle_depth > 0 {
@@ -539,7 +571,7 @@ impl TemplateExtractor {
 
         // Expect closing >
         if i >= tokens.len() || !matches!(tokens[i].token, Token::Greater) {
-            return (false, None, 0);
+            return (None, Vec::new(), 0);
         }
 
         i += 1;
@@ -547,20 +579,20 @@ impl TemplateExtractor {
         // Expect semicolon
         i = skip_whitespace(tokens, i);
         if i >= tokens.len() || !matches!(tokens[i].token, Token::Semicolon) {
-            return (false, None, 0);
+            return (None, Vec::new(), 0);
         }
         i += 1;
 
         // Create the template definition
         let template_def = TemplateDefinition {
             params: Vec::new(),
-            name: template_name,
+            name: if is_second {second_name.unwrap()} else { template_name },
             tokens: tokens[start..=(i - 1)].to_vec(),
             kind: TemplateKind::Typedef,
             second_name: None,
         };
 
-        (true, Some(template_def), i)
+        (Some(template_def), aliases, i)
     }
 
 

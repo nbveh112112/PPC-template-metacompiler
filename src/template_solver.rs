@@ -135,8 +135,7 @@ impl TemplateSolver {
                         i += consumed;
                         continue;
                     }
-                }
-                if self.struct_templates.contains_key(name) && last_token_was_struct {
+                } else if last_token_was_struct && self.struct_templates.contains_key(name)  {
                     // Look ahead for instantiation syntax
                     let mut j = i + 1;
                     j = skip_whitespace(&tokens, j);
@@ -155,6 +154,35 @@ impl TemplateSolver {
                             column: tokens[i].column,
                             position: tokens[i].position,
                         });
+
+                        i += consumed;
+                        continue;
+                    }
+                } else if self.additional_templates.contains_key(name) {
+                    let mut j = i + 1;
+                    j = skip_whitespace(&tokens, j);
+
+                    if j < tokens.len() && matches!(tokens[j].token, Token::LeftBrace) {
+                        // Parse instantiation
+                        let (mut instantiation, consumed) = self.parse_instantiation(&tokens[i..], name)?;
+
+
+                        result.push(TokenInfo{
+                            token: Token::Identifier(generate_name(instantiation.name.clone(), instantiation.concrete_types.clone())),
+                            line: tokens[i].line,
+                            column: tokens[i].column,
+                            position: tokens[i].position,
+                        });
+
+                        let templates = self.additional_templates.get(name).unwrap();
+
+                        for template in templates {
+                            instantiation.name = template.name.clone();
+                            self.instantiations.get_mut(&template.name).unwrap().insert(instantiation.clone());
+                        }
+
+                        count += 1;
+
 
                         i += consumed;
                         continue;
@@ -410,6 +438,7 @@ impl TemplateSolver {
     }
 
     fn instantiate_additional_template(&self, template: &TemplateDefinition, inst: &Instantiation) -> Vec<TokenInfo> {
+        let mut is_solved = false;
         let mut result = Vec::new();
 
         let mut param_map: HashMap<String, Vec<TokenInfo>> = HashMap::new();
@@ -420,11 +449,27 @@ impl TemplateSolver {
             if let Token::Identifier(name) = &token_info.token {
                 if let Some(concrete) = param_map.get(name) {
                     result.extend(concrete.iter().cloned());
-                }
-                else {
+                } else if *name == template.name {
+                    result.push(token_info.clone());
+                } else if template.second_name.clone().unwrap_or("".parse().unwrap()) == *name {
                     result.push(token_info.clone());
                 }
+                else {
+                    if !is_solved {
+                        result.push(TokenInfo{
+                            token: Token::Identifier(generate_name(name.clone(), inst.concrete_types.clone())),
+                            line: token_info.line,
+                            column: token_info.column,
+                            position: token_info.position,
+                        });
+                    } else {
+                        result.push(token_info.clone());
+                    }
+                }
             } else {
+                if !matches!(&token_info.token, Token::LeftParen) {
+                    is_solved = true;
+                }
                 result.push(token_info.clone());
             }
         }
