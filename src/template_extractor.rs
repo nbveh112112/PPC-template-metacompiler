@@ -542,7 +542,7 @@ impl TemplateExtractor {
         }
         i += 1;
 
-        let mut second_name: Option<String> = None;
+        let mut s_name: Option<String> = None;
         let mut is_alias: bool = true;
         let mut aliases : Vec<String> = Vec::new();
         // Find the matching > and collect all tokens inside
@@ -555,8 +555,8 @@ impl TemplateExtractor {
                     if is_alias {
                         aliases.push(name.clone())
                     }
-                    else if !second_name.is_some(){
-                        second_name = Some(name.clone())
+                    else if !s_name.is_some(){
+                        s_name = Some(name.clone())
                     }
                 }
                 Token::Colon => {
@@ -586,10 +586,10 @@ impl TemplateExtractor {
         // Create the template definition
         let template_def = TemplateDefinition {
             params: Vec::new(),
-            name: if is_second {second_name.unwrap()} else { template_name },
+            name: if is_second {s_name.clone().unwrap()} else { template_name.clone() },
             tokens: tokens[start..=(i - 1)].to_vec(),
             kind: TemplateKind::Typedef,
-            second_name: None,
+            second_name: Some (if is_second {template_name} else { s_name.unwrap() }),
         };
 
         (Some(template_def), aliases, i)

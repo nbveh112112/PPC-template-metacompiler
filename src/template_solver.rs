@@ -467,7 +467,7 @@ impl TemplateSolver {
                     }
                 }
             } else {
-                if !matches!(&token_info.token, Token::LeftParen) {
+                if matches!(&token_info.token, Token::LeftBrace) {
                     is_solved = true;
                 }
                 result.push(token_info.clone());
